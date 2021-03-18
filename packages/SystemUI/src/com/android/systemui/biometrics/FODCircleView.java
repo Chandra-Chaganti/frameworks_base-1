@@ -20,18 +20,24 @@ import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
 import android.hardware.biometrics.BiometricSourceType;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.RemoteException;
 import android.pocket.IPocketCallback;
 import android.pocket.PocketManager;
 import android.provider.Settings;
+import android.util.Spline;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -48,15 +54,18 @@ import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.policy.ConfigurationController;
 import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener;
+import com.android.systemui.tuner.TunerService;
 
 import vendor.lineage.biometrics.fingerprint.inscreen.V1_0.IFingerprintInscreen;
 import vendor.lineage.biometrics.fingerprint.inscreen.V1_0.IFingerprintInscreenCallback;
 
+import java.lang.Math;
 import java.util.NoSuchElementException;
 import java.util.Timer;
 import java.util.TimerTask;
 
-public class FODCircleView extends ImageView implements ConfigurationListener {
+public class FODCircleView extends ImageView implements TunerService.Tunable,ConfigurationListener {
+    private static final String SCREEN_BRIGHTNESS = "system:" + Settings.System.SCREEN_BRIGHTNESS;
     private static final int FADE_ANIM_DURATION = 125;
     private final int mPositionX;
     private final int mPositionY;
@@ -74,6 +83,11 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
 
     private int mDreamingOffsetX;
     private int mDreamingOffsetY;
+
+    private int mCurrentBrightness;
+    private int mDefaultScreenBrightness;
+    private Spline mFodSpline;
+    private boolean mFingerprintDimmingScreen;
 
     private boolean mFading;
     private boolean mIsBouncer;
@@ -302,12 +316,22 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
 
         mUpdateMonitor = Dependency.get(KeyguardUpdateMonitor.class);
         mUpdateMonitor.registerCallback(mMonitorCallback);
-    
+
         updateCutoutFlags();
         Dependency.get(ConfigurationController.class).addCallback(this);
 
         // Pocket
         mPocketManager = (PocketManager) context.getSystemService(Context.POCKET_SERVICE);
+
+        final PowerManager powermanager = context.getSystemService(PowerManager.class);
+        mDefaultScreenBrightness = powermanager.getDefaultScreenBrightnessSetting();
+        final float[] brightness = getFloatArray(
+                res.obtainTypedArray(R.array.config_FODCircleBrightnessLevels));
+        final float[] alpha = getFloatArray(
+                res.obtainTypedArray(R.array.config_FODCircleAlphaLevels));
+        mFodSpline = Spline.createSpline(brightness, alpha);
+        mFingerprintDimmingScreen = res.getBoolean(
+                com.android.systemui.R.bool.config_fingerprintDimmingScreen);
     }
 
     @Override
@@ -347,6 +371,12 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         updatePosition();
+    }
+
+    @Override
+    public void onTuningChanged(String key, String newValue) {
+        mCurrentBrightness = TunerService.parseInteger(newValue, mDefaultScreenBrightness);
+        updateAlpha();
     }
 
     public IFingerprintInscreen getFingerprintInScreenDaemon() {
@@ -462,6 +492,7 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
                 .withEndAction(() -> mFading = false)
                 .start();
         dispatchShow();
+        Dependency.get(TunerService.class).addTunable(this, SCREEN_BRIGHTNESS);
     }
 
     public void hide() {
@@ -475,10 +506,22 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
                 .start();
         hideCircle();
         dispatchHide();
+        Dependency.get(TunerService.class).removeTunable(this);
     }
 
     private void updateAlpha() {
-        setAlpha(mIsDreaming ? 0.5f : 1.0f);
+        final int alpha;
+        if (mFingerprintDimmingScreen) {
+            int brightness = mCurrentBrightness;
+            if (mIsDreaming) {
+                brightness /= 2;
+            }
+            alpha = Math.round(mFodSpline.interpolate(brightness));
+        } else {
+            alpha = mIsDreaming ? 200 : 255;
+        }
+        mHandler.post(() -> setColorFilter(
+            new PorterDuffColorFilter(Color.argb(alpha, 0, 0, 0), PorterDuff.Mode.SRC_ATOP)));
     }
 
     private void updatePosition() {
@@ -528,13 +571,11 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
 
     private void setDim(boolean dim) {
         if (dim) {
-            int curBrightness = Settings.System.getInt(getContext().getContentResolver(),
-                    Settings.System.SCREEN_BRIGHTNESS, 100);
             int dimAmount = 0;
 
             IFingerprintInscreen daemon = getFingerprintInScreenDaemon();
             try {
-                dimAmount = daemon.getDimAmount(curBrightness);
+                dimAmount = daemon.getDimAmount(mCurrentBrightness);
             } catch (RemoteException e) {
                 // do nothing
             }
@@ -572,6 +613,16 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
         }
 
         return false;
+    }
+
+    private static float[] getFloatArray(TypedArray array) {
+        int length = array.length();
+        float[] floatArray = new float[length];
+        for (int i = 0; i < length; i++) {
+            floatArray[i] = array.getFloat(i, Float.NaN);
+        }
+        array.recycle();
+        return floatArray;
     }
 
     private class BurnInProtectionTask extends TimerTask {
