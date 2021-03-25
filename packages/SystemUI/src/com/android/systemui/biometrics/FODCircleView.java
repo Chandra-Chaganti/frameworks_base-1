@@ -166,11 +166,11 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
         @Override
         public void onDreamingStateChanged(boolean dreaming) {
             mIsDreaming = dreaming;
-            updateIconDim(false);
+            updateAlpha();
 
             if (mIsKeyguard && mUpdateMonitor.isFingerprintDetectionRunning()) {
                 show();
-                updateIconDim(false);
+                updateAlpha();
             } else {
                 hide();
             }
@@ -180,7 +180,6 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
                 mBurnInProtectionTimer.schedule(new BurnInProtectionTask(), 0, 60 * 1000);
             } else if (mBurnInProtectionTimer != null) {
                 mBurnInProtectionTimer.cancel();
-                mBurnInProtectionTimer = null;
                 updatePosition();
             }
         }
@@ -191,7 +190,7 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
             if (!showing) {
                 hide();
             } else {
-                updateIconDim(false);
+                updateAlpha();
             }
             handlePocketManagerCallback(showing);
         }
@@ -269,12 +268,9 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
         }
 
         void update() {
-            int brightness = Settings.System.getInt(
+            mCurrentBrightness = Settings.System.getInt(
                     mContext.getContentResolver(), SCREEN_BRIGHTNESS, 100);
-            if (mCurrentBrightness != brightness) {
-                mCurrentBrightness = brightness;
-                updateIconDim(false);
-            }
+            updateIconDim(false);
         }
     }
 
@@ -323,9 +319,8 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
         mPaintFingerprint.setAntiAlias(true);
 
         mPaintFingerprintBackground.setColor(res.getColor(R.color.config_fodColorBackground));
-        mPaintFingerprintBackground.setAntiAlias(true);
-
         mTargetUsesInKernelDimming = res.getBoolean(com.android.internal.R.bool.config_targetUsesInKernelDimming);
+        mPaintFingerprintBackground.setAntiAlias(true);
 
         mWindowManager = context.getSystemService(WindowManager.class);
 
@@ -336,7 +331,6 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
         mHandler = new Handler(Looper.getMainLooper());
 
         mCustomSettingsObserver = new CustomSettingsObserver(mHandler);
-        mCustomSettingsObserver.update();
 
         mParams.height = mSize;
         mParams.width = mSize;
@@ -430,13 +424,11 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
                         mIsAnimating = false;
                     }
                 });
-                anim.setDuration(500);
+                anim.setDuration(1000);
                 mIsAnimating = true;
                 mHandler.post(() -> anim.start());
             } else if (!mIsAnimating) {
-                mHandler.post(() ->
-                        setColorFilter(Color.argb(getDimAlpha(), 0, 0, 0),
-                        PorterDuff.Mode.SRC_ATOP));
+                setColorFilter(Color.argb(getDimAlpha(), 0, 0, 0), PorterDuff.Mode.SRC_ATOP);
             }
         } else {
             mHandler.post(() -> setColorFilter(Color.argb(0, 0, 0, 0), PorterDuff.Mode.SRC_ATOP));
@@ -621,6 +613,10 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
         ThreadUtils.postOnBackgroundThread(() -> {
             dispatchHide();
         });
+    }
+
+    private void updateAlpha() {
+        setAlpha(mIsDreaming ? 0.5f : 1.0f);
     }
 
     private void updatePosition() {
