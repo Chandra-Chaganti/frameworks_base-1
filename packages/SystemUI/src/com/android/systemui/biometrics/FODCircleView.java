@@ -486,7 +486,6 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
 
         setImageDrawable(null);
         updateIconDim();
-        updatePosition();
         invalidate();
     }
 
@@ -596,7 +595,7 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
         mPressedParams.x = mParams.x = x;
         mPressedParams.y = mParams.y = y;
 
-        if (mIsDreaming && !mIsCircleShowing) {
+        if (mIsDreaming) {
             mParams.y += mDreamingOffsetY;
         }
 
