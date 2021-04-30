@@ -75,7 +75,6 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
     private final int mSize;
     private final int mDreamingMaxOffset;
     private final int mNavigationBarSize;
-    private final boolean mHideFodCircleGoingToSleep;
     private final boolean mShouldBoostBrightness;
     private final boolean mTargetUsesInKernelDimming;
     private final Paint mPaintFingerprintBackground = new Paint();
@@ -197,16 +196,7 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
 
         @Override
         public void onStartedGoingToSleep(int why) {
-            if (mHideFodCircleGoingToSleep) {
-                hide();
-            }
-        }
-
-        @Override
-        public void onScreenTurnedOff() {
-            if (!mHideFodCircleGoingToSleep) {
-                hide();
-            }
+            hide();
         }
 
         @Override
@@ -327,9 +317,6 @@ public class FODCircleView extends ImageView implements ConfigurationListener {
                 Spline.createSpline(display_brightness, icon_dim_amount);
 
         mTargetUsesInKernelDimming = res.getBoolean(com.android.internal.R.bool.config_targetUsesInKernelDimming);
-        
-        mHideFodCircleGoingToSleep = mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_hideFodCircleGoingToSleep);
 
         mWindowManager = context.getSystemService(WindowManager.class);
 
